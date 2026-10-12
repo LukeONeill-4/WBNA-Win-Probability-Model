@@ -1,0 +1,385 @@
+---
+title: "project1"
+output: html_document
+author: "Luke O'Neill
+---
+
+```{r}
+
+library(tidyverse)
+library(knitr)
+library(tinytex)
+
+
+
+```
+load games 
+
+```{r}
+games <- readRDS("wnba_pbp_2014-2023.rds")
+
+
+
+
+```
+
+
+seperate training set
+```{r}
+
+wnba_train <- games %>%
+  filter(ymd(game_date)<"2022-12-31") %>%
+  transmute(game_id,event_id=id,team_id,
+            event_type=type_text,
+            scoring_play,
+            date=game_date,quarter=qtr,
+            quarter_time=if_else(quarter<5,
+                                 10-(clock_minutes+clock_seconds/60),
+                                 5-(clock_minutes+clock_seconds/60)),
+            game_time=if_else(quarter<5,
+                              (quarter-1)*10+quarter_time,
+                              40+quarter_time),
+            home_team_id,home_score,
+            away_team_id,away_score,
+            home_margin=home_score-away_score) %>%
+  arrange(date,game_id,quarter,quarter_time)
+
+#create home winner data
+home_win <- wnba_train %>%
+  group_by(game_id) %>%
+  slice_tail(n=1) %>%
+  ungroup() %>%
+  transmute(game_id,
+            home_win=as.factor(if_else(home_margin>0,"Yes","No")))
+
+
+
+#join home winner data to training set
+wnba_train2 <- wnba_train %>%
+  left_join(home_win,
+            by="game_id")
+
+#review training data
+glimpse(wnba_train2)
+
+```
+
+
+```{r}
+
+
+```
+
+
+
+```{r}
+
+
+
+
+```
+
+```{r}
+#create logistic regression model
+log_model <- glm(home_win~game_time*home_margin,
+                 data=wnba_train2,
+                 family="binomial")
+
+#review model
+summary(log_model)
+```
+
+create testing set
+
+
+
+```{r}
+
+```
+
+
+
+
+```{r}
+
+
+
+
+
+```
+
+must still test the model yeah aii
+
+```{r}
+
+
+wnba_test <- games %>%
+  filter(between(ymd(game_date),
+                 ymd("2023-01-01"),
+                 ymd("2023-12-31")),
+         scoring_play == TRUE) %>%
+  group_by(game_id) %>%
+  filter(max(period_number) < 5) %>%
+  ungroup() %>%
+  transmute(game_id, event_id = id,
+            date = game_date, quarter = qtr,
+            quarter_time = if_else(quarter < 5,
+                                   10 - (clock_minutes + clock_seconds/60),
+                                   5  - (clock_minutes + clock_seconds/60)),
+            game_time = if_else(quarter < 5,
+                                (quarter - 1) * 10 + quarter_time,
+                                40 + quarter_time),
+            home_team = as.factor(home_team_name), home_score,
+            away_team = as.factor(away_team_name), away_score,
+            home_margin = home_score - away_score) %>%
+  arrange(date, game_id, quarter, quarter_time)
+
+
+
+
+# create win or loss variable
+
+home_win <- wnba_test %>%
+  group_by(game_id) %>%
+  slice_tail(n=1) %>%
+  ungroup() %>%
+  transmute(game_id,
+            home_win=as.factor(if_else(home_margin>0,"Yes","No")))
+
+
+
+wnba_test_44 <- wnba_test %>%
+  left_join(home_win,
+            by="game_id")
+
+```
+
+testing testing...
+```{r}
+#predict testing data
+test_log_predict <- predict(log_model,
+                       newdata=wnba_test,
+                       type="response")
+
+#add predictions to test set
+wnba_test_real <- wnba_test_44 %>%
+  mutate(home_prob=test_log_predict)
+
+
+mean((wnba_test_real$home_prob >= 0.5) == (wnba_test_real$home_win == "Yes"), na.rm = TRUE)
+
+# 77.68% accuracy is pretty good 
+
+```
+
+
+
+my game
+
+
+```{r}
+new_games <- readRDS("wnba_pbp_2024.rds")
+
+my_game <- new_games %>%
+  filter(game_id == 401620396)
+
+
+
+
+
+
+
+wnba_test1 <- my_game %>%
+  filter(scoring_play ==TRUE) %>%
+  transmute(game_id,event_id=id,
+            date=game_date,quarter=qtr,
+            quarter_time=if_else(quarter<5,
+                                 10-(clock_minutes+clock_seconds/60),
+                                 5-(clock_minutes+clock_seconds/60)),
+            game_time=if_else(quarter<5,
+                              (quarter-1)*10+quarter_time,
+                              40+quarter_time),
+            home_team=as.factor(home_team_name),home_score,
+            away_team=as.factor(away_team_name),away_score,
+            home_margin=home_score-away_score) %>%
+  arrange(date,game_id,quarter,quarter_time)
+
+
+log_predict <- predict(log_model,
+                       newdata=wnba_test1,
+                       type="response")
+
+#add predictions to test set
+wnba_test12 <- wnba_test1 %>%
+  mutate(home_prob=log_predict)
+
+#review test set
+glimpse(wnba_test12)
+
+```
+
+
+
+
+```{r}
+ggplot(data=wnba_test12,
+       mapping=aes(x=game_time,y=home_prob)) +
+  geom_line(linewidth=1) +
+  geom_vline(xintercept=c(10,20,30),
+             linetype="dashed") +
+  geom_hline(yintercept=0.5) +
+  labs(title="Dallas vs Las Vegas",
+       x="Game Time (minutes)",
+       y="Home Win Probability",
+       caption="Source: ESPN via wehoop") +
+  scale_x_continuous(limits=c(0,40),breaks=seq(0,40,5)) +
+  scale_y_continuous(limits=c(0,1),breaks=seq(0,1,0.1)) +
+  theme_bw()
+
+
+
+```
+
+
+
+```{r}
+wnba_test13 <- data.table::rbindlist(
+  list(
+    wnba_test12,
+    data.frame(game_time = c(0, 40),
+               home_margin = c(0, 3),
+               home_prob = c(0.248, 1))
+  ),
+  use.names = TRUE,
+  fill = TRUE
+) %>%
+  arrange(game_time) %>%
+  mutate(home_prob = if_else((home_prob < 0.01 & game_time < 40), 0.01, home_prob),
+         home_prob = if_else((home_prob > 0.99 & game_time < 40), 0.99, home_prob),
+         proj_winner = if_else(home_prob >= 0.5, "Dallas", "Las Vegas"))
+
+
+
+
+
+
+
+#add initial and terminal conditions
+#adjust 0 or 1 probs
+#add projected winner
+#wnba_test13 <- wnba_test12 %>%
+ # rbind(data.frame(game_time=c(0,40),
+   #                home_margin=c(0,-14),
+       #            home_prob=c(0.248,0))) %>%
+#  arrange(game_time) %>%
+ # mutate(home_prob=if_else((home_prob<0.01 & game_time<40),0.01,home_prob),
+   #      home_prob=if_else((home_prob>0.99 & game_time<40),0.99,home_prob),
+    #     proj_winner=if_else(home_prob>=0.5,"Dallas","Las Vegas"))
+
+#create new rows between projection changes
+wnba_test13b <- wnba_test13 %>%
+  mutate(game_timeb=(game_time+lag(game_time,1))/2,
+         home_marginb=0,
+         home_probb=0.5,
+         proj_winnerb=proj_winner,
+         proj_shift=home_prob-0.5,
+         proj_change=if_else(sign(proj_shift)!=
+                               sign(lag(proj_shift,1)),1,0)) %>%
+  filter(proj_change==1) %>%
+  transmute(game_time=game_timeb,
+            home_margin=home_marginb,
+            home_prob=home_probb,
+            proj_winner=proj_winnerb)
+
+#add new rows to original data
+#wnba_test14 <- wnba_test13 %>%
+  #rbind(wnba_test13b) %>%
+ # arrange(game_time)
+wnba_test14 <- data.table::rbindlist(
+  list(wnba_test13, wnba_test13b),
+  use.names = TRUE,
+  fill = TRUE
+) %>%
+  arrange(game_time)
+
+
+
+
+
+
+
+
+#create win probability line graph
+ggplot(data=wnba_test14,
+       mapping=aes(x=game_time,
+                   y=home_prob,
+                   color=proj_winner,
+                   group=1)) +
+  geom_line(linewidth=1) +
+  geom_vline(xintercept=c(10,20,30),
+             linetype="dashed") +
+  geom_hline(yintercept=0.5) +
+  labs(title="Las Vegas at Dallas 8/28/24",
+       subtitle = "Logistic Regression Model, Accuracy: 77.68%",
+       x="Game Time (minutes)",
+       y="Home Win Probability",
+       color="Projected\nWinner",
+       caption="Produced by Luke O'Neill") +
+  scale_x_continuous(limits=c(0,40),breaks=seq(0,40,5)) +
+  scale_y_continuous(limits=c(0,1),breaks=seq(0,1,0.1)) +
+  scale_color_manual(values=c("#39FF14","#C0C0C0")) +
+  theme_bw()
+
+
+
+```
+gotta animate this bitch now
+```{r}
+library(gganimate)
+
+
+
+anim_plot <- ggplot(data = wnba_test14,
+       aes(x = game_time,
+           y = home_prob,
+           color = proj_winner,
+           group = 1)) +
+
+  geom_line(linewidth = 1) +
+
+  geom_vline(xintercept = c(10,20,30),
+             linetype = "dashed") +
+
+  geom_hline(yintercept = 0.5) +
+
+  labs(
+    title = "Las Vegas at Dallas 8/28/24",
+    subtitle = "Logistic Regression Model, Accuracy: 77.68%",
+    x = "Game Time (minutes)",
+    y = "Home Win Probability",
+    color = "Projected\nWinner",
+    caption = "Produced by Luke O'Neill"
+  ) +
+
+  scale_x_continuous(limits = c(0,40), breaks = seq(0,40,5)) +
+  scale_y_continuous(limits = c(0,1), breaks = seq(0,1,0.1)) +
+  scale_color_manual(values = c("#39FF14","#C0C0C0")) +
+  theme_bw() +
+
+  transition_reveal(game_time)
+
+
+
+
+
+animate(anim_plot,
+        fps = 20,
+        duration = 10,
+        width = 900,
+        height = 500,
+        renderer = gifski_renderer())
+
+
+
+anim_save("wnba_winprob.gif")
+```
